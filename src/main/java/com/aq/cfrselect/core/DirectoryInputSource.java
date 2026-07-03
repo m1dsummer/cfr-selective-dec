@@ -18,6 +18,11 @@ final class DirectoryInputSource implements InputSource {
     }
 
     @Override
+    public Path directClassFile() {
+        return path;
+    }
+
+    @Override
     public InputSource sibling(String siblingEntryName) {
         int slash = siblingEntryName.lastIndexOf('/');
         String filename = slash >= 0 ? siblingEntryName.substring(slash + 1) : siblingEntryName;

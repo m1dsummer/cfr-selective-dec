@@ -20,9 +20,10 @@ public final class CliOptions {
     public final boolean keepTemp;
     public final boolean debug;
     public final boolean help;
+    public final int threads;
 
     private CliOptions(Path input, Path output, List<String> packages, String outputEncoding,
-                       boolean keepTemp, boolean debug, boolean help) {
+                       boolean keepTemp, boolean debug, boolean help, int threads) {
         this.input = input;
         this.output = output;
         this.packages = packages;
@@ -30,12 +31,13 @@ public final class CliOptions {
         this.keepTemp = keepTemp;
         this.debug = debug;
         this.help = help;
+        this.threads = threads;
     }
 
     public static CliOptions parse(String[] args) {
         if (args.length == 0 || has(args, "-h") || has(args, "--help")) {
             return new CliOptions(null, null, Collections.<String>emptyList(),
-                    ArchiveNames.DEFAULT_OUTPUT_ENCODING, false, has(args, "--debug"), true);
+                    ArchiveNames.DEFAULT_OUTPUT_ENCODING, false, has(args, "--debug"), true, defaultThreads());
         }
 
         if (args[0].startsWith("-")) {
@@ -62,6 +64,7 @@ public final class CliOptions {
         Path output = Paths.get(args[1]).toAbsolutePath().normalize();
         boolean keepTemp = false;
         boolean debug = false;
+        int threads = defaultThreads();
         String outputEncoding = ArchiveNames.DEFAULT_OUTPUT_ENCODING;
         List<String> packages = new ArrayList<>();
         for (int i = 2; i < args.length; i++) {
@@ -72,13 +75,15 @@ public final class CliOptions {
                 debug = true;
             } else if ("--output-encoding".equals(arg) || "--outputencoding".equals(arg)) {
                 outputEncoding = nextValue(args, ++i, arg);
+            } else if ("--threads".equals(arg)) {
+                threads = parseThreads(nextValue(args, ++i, arg));
             } else if (arg.startsWith("-")) {
                 throw new UsageException("Unknown option: " + arg);
             } else {
                 packages.addAll(parsePackages(new String[] { arg }));
             }
         }
-        return validate(new CliOptions(input, output, packages, outputEncoding, keepTemp, debug, false));
+        return validate(new CliOptions(input, output, packages, outputEncoding, keepTemp, debug, false, threads));
     }
 
     private static CliOptions parseNamed(String[] args) {
@@ -86,6 +91,7 @@ public final class CliOptions {
         Path output = null;
         boolean keepTemp = false;
         boolean debug = false;
+        int threads = defaultThreads();
         String outputEncoding = ArchiveNames.DEFAULT_OUTPUT_ENCODING;
         List<String> packages = new ArrayList<>();
 
@@ -108,6 +114,9 @@ public final class CliOptions {
                 case "--outputencoding":
                     outputEncoding = nextValue(args, ++i, arg);
                     break;
+                case "--threads":
+                    threads = parseThreads(nextValue(args, ++i, arg));
+                    break;
                 case "--keep-temp":
                     keepTemp = true;
                     break;
@@ -119,7 +128,7 @@ public final class CliOptions {
             }
         }
 
-        return validate(new CliOptions(input, output, packages, outputEncoding, keepTemp, debug, false));
+        return validate(new CliOptions(input, output, packages, outputEncoding, keepTemp, debug, false, threads));
     }
 
     private static CliOptions validate(CliOptions options) {
@@ -151,6 +160,22 @@ public final class CliOptions {
             throw new UsageException("Missing value for " + option);
         }
         return args[index];
+    }
+
+    private static int defaultThreads() {
+        return Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
+    }
+
+    private static int parseThreads(String value) {
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed < 1) {
+                throw new UsageException("--threads must be >= 1");
+            }
+            return parsed;
+        } catch (NumberFormatException e) {
+            throw new UsageException("Invalid --threads value: " + value);
+        }
     }
 
     private static List<String> parsePackages(String[] values) {

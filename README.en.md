@@ -14,12 +14,19 @@ A CFR-based batch decompiler for local Java auditing. It scans `.jar`, `.war`, c
   - `BOOT-INF/classes`
   - `BOOT-INF/lib/*.jar`
 - Recursively extract and process nested `.jar` and `.war` files.
-- Process classes in groups of `128` using a thread pool sized to the available CPU count.
+- Process classes in groups of `128` using a configurable worker pool.
 - Reuse existing non-empty `.java` outputs as cache hits.
 - Retry classes that did not produce output; failed batches are split down to single classes before permanent failure.
 - Skip duplicate classes that map to the same final `.java` path and record them in `summary.txt`.
 - Write `manifest.txt` with one source mapping for each generated `.java` file.
 - Use CFR with `--hideutf false` and UTF-8 output by default.
+
+### Performance (1.0.5+)
+
+- **Configurable workers** - `--threads <n>` controls queue concurrency; the default is capped at `min(4, CPUs)`.
+- **Direct class inputs** - batch decompilation now passes class files directly to CFR and reuses materialized archive entries.
+- **Single-class retries** - failed groups are split to individual classes while reusable outputs are counted accurately.
+- **Inner-class output mapping** - inner and anonymous classes are checked against the top-level source file such as `Outer.java`.
 
 ### Performance (1.0.4+)
 
@@ -91,6 +98,7 @@ java -jar cfr-selective-dec.jar <input.jar|input.war|input-dir> <output-dir> [pa
 | `-o, --output <dir>` | Directory for generated `.java` files, `summary.txt`, and `manifest.txt`. |
 | `-p, --packages <prefixes>` | Optional package prefixes. Use commas or semicolons to separate multiple prefixes. |
 | `--output-encoding <charset>` | Output encoding for `.java` files. Default: `UTF-8`. |
+| `--threads <n>` | Worker thread count. Default: `min(4, CPUs)`. |
 | `--keep-temp` | Keep temporary extracted archives for troubleshooting. |
 | `--debug` | Print full exception stack traces and debug logs. |
 | `-h, --help` | Show command help. |

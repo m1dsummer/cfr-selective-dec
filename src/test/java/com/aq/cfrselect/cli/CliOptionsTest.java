@@ -21,7 +21,8 @@ public class CliOptionsTest {
         CliOptions options = CliOptions.parse(new String[] {
                 "--input", input.getAbsolutePath(),
                 "--output", output.getAbsolutePath(),
-                "--packages", "com.foo,org.demo"
+                "--packages", "com.foo,org.demo",
+                "--threads", "2"
         });
 
         assertEquals(input.toPath().toAbsolutePath().normalize(), options.input);
@@ -29,6 +30,7 @@ public class CliOptionsTest {
         assertEquals(2, options.packages.size());
         assertEquals("com.foo", options.packages.get(0));
         assertEquals("org.demo", options.packages.get(1));
+        assertEquals(2, options.threads);
         assertFalse(options.help);
     }
 

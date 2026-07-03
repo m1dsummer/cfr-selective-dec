@@ -2,6 +2,16 @@
 
 All notable changes are listed with the newest version first.
 
+## 1.0.5
+
+- Added `--threads <n>` to control worker concurrency. The default is capped at `min(4, CPUs)` to avoid saturating the host by default.
+- Reworked CFR batch input handling to materialize or reuse class files directly instead of creating a temporary batch jar for every group.
+- Added per-class retry splitting so failed groups are retried as single-class tasks, while reusable outputs are counted correctly.
+- Fixed inner and anonymous class output detection by mapping `Outer$Inner.class` and `Outer$1.class` back to `Outer.java`.
+- Reduced normal task log noise; detailed task lifecycle logs now require `--debug`.
+- Hardened concurrent class materialization and `ZipFilePool` close handling.
+- Added unit coverage for inner-class source output mapping and `--threads` CLI parsing.
+
 ## 1.0.4
 
 ### Performance / 性能优化

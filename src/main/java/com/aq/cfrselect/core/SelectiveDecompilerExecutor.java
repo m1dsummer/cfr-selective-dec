@@ -7,7 +7,6 @@ import org.benf.cfr.reader.api.CfrDriver;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -26,8 +25,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.jar.JarEntry;
-import java.util.jar.JarOutputStream;
 
 final class SelectiveDecompilerExecutor {
     static final int GROUP_SIZE = 128;
@@ -37,6 +34,7 @@ final class SelectiveDecompilerExecutor {
     private final SelectiveDecompilerSummary summary;
     private final Object logLock = new Object();
     private final ConcurrentMap<Path, Object> outputLocks = new ConcurrentHashMap<Path, Object>();
+    private final ConcurrentMap<String, Object> materializeLocks = new ConcurrentHashMap<String, Object>();
     private final AtomicLong taskSequence = new AtomicLong();
     private List<Path> allArchives = new ArrayList<Path>();
     private ZipFilePool zipPool;
@@ -46,6 +44,7 @@ final class SelectiveDecompilerExecutor {
     private enum TaskOutcome {
         SUCCEEDED,
         FAILED,
+        RETRY,
         SKIPPED
     }
 
@@ -74,6 +73,11 @@ final class SelectiveDecompilerExecutor {
             this.failureSuffix = suffix == null ? "" : suffix;
         }
 
+        private void retry(String suffix) {
+            this.outcome = TaskOutcome.RETRY;
+            this.failureSuffix = suffix == null ? "" : suffix;
+        }
+
         private void close() {
             if (outcome == null) {
                 fail(" unexpected-exit");
@@ -84,6 +88,9 @@ final class SelectiveDecompilerExecutor {
                     break;
                 case SKIPPED:
                     logSkipped(taskName);
+                    break;
+                case RETRY:
+                    logRetry(taskName + failureSuffix, startedAt);
                     break;
                 case FAILED:
                 default:
@@ -102,6 +109,16 @@ final class SelectiveDecompilerExecutor {
             this.completed = completed;
             this.produced = produced;
             this.remaining = remaining;
+        }
+    }
+
+    private static final class SubmittedGroup {
+        final List<DecompileTask> group;
+        final Future<BatchResult> future;
+
+        SubmittedGroup(List<DecompileTask> group, Future<BatchResult> future) {
+            this.group = group;
+            this.future = future;
         }
     }
 
@@ -127,7 +144,7 @@ final class SelectiveDecompilerExecutor {
         // Build an entry-name index for O(1) outer class lookup across all archives
         entryIndex = buildEntryIndex(allArchives);
 
-        int threadCount = Math.max(1, Runtime.getRuntime().availableProcessors());
+        int threadCount = Math.max(1, options.threads);
         System.out.println("Queue executor: groupSize=" + GROUP_SIZE + " threads=" + threadCount
                 + " total=" + tasks.size());
 
@@ -145,51 +162,55 @@ final class SelectiveDecompilerExecutor {
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
         try {
             int round = 0;
-            int batchSize = GROUP_SIZE;
-            while (!pending.isEmpty()) {
+            List<List<DecompileTask>> currentGroups = partition(pending, GROUP_SIZE);
+            while (!currentGroups.isEmpty()) {
                 round++;
-                List<List<DecompileTask>> groups = partition(pending, batchSize);
-                summary.totalQueueTasks.addAndGet(groups.size());
-                logInfo("[queue-round] round=" + round + " groups=" + groups.size()
-                        + " pending=" + pending.size() + " groupSize=" + batchSize
+                int pendingCount = countTasks(currentGroups);
+                int maxGroupSize = maxGroupSize(currentGroups);
+                summary.totalQueueTasks.addAndGet(currentGroups.size());
+                logInfo("[queue-round] round=" + round + " groups=" + currentGroups.size()
+                        + " pending=" + pendingCount + " maxGroupSize=" + maxGroupSize
                         + " progress=" + completedTotal + "/" + totalTasks
                         + " " + (totalTasks > 0 ? (completedTotal * 100 / totalTasks) : 0) + "%");
 
-                List<Future<BatchResult>> futures = new ArrayList<Future<BatchResult>>(groups.size());
-                for (List<DecompileTask> group : groups) {
-                    futures.add(executor.submit(new GroupCallable(group)));
+                List<SubmittedGroup> submitted = new ArrayList<SubmittedGroup>(currentGroups.size());
+                for (List<DecompileTask> group : currentGroups) {
+                    submitted.add(new SubmittedGroup(group, executor.submit(new GroupCallable(group))));
                 }
 
-                List<DecompileTask> nextPending = new ArrayList<DecompileTask>();
-                int producedThisRound = 0;
-                for (Future<BatchResult> future : futures) {
+                List<List<DecompileTask>> nextGroups = new ArrayList<List<DecompileTask>>();
+                List<DecompileTask> singleFailures = new ArrayList<DecompileTask>();
+                for (SubmittedGroup item : submitted) {
                     BatchResult result;
                     try {
-                        result = future.get();
+                        result = item.future.get();
                     } catch (ExecutionException e) {
                         throw new IOException("Queue worker failed unexpectedly", e.getCause());
                     }
-                    producedThisRound += result.produced;
-                    nextPending.addAll(result.remaining);
-                }
-
-                completedTotal += producedThisRound;
-
-                if (nextPending.isEmpty()) {
-                    break;
-                }
-                if (producedThisRound == 0) {
-                    if (batchSize == 1) {
-                        markPermanentFailures(nextPending);
-                        break;
+                    completedTotal += result.produced;
+                    if (result.remaining.isEmpty()) {
+                        continue;
                     }
-                    batchSize = Math.max(1, batchSize / 2);
-                    logInfo("[queue-retry-smaller] nextGroupSize=" + batchSize
-                            + " pending=" + nextPending.size());
-                    pending = nextPending;
+                    if (item.group.size() == 1) {
+                        singleFailures.addAll(result.remaining);
+                        continue;
+                    }
+                    nextGroups.addAll(partition(result.remaining, 1));
+                }
+                completedTotal += markReusableOutputs(singleFailures);
+                List<DecompileTask> permanentFailures = filterUnfinished(singleFailures);
+                if (!permanentFailures.isEmpty()) {
+                    completedTotal += markPermanentFailures(permanentFailures);
+                }
+                completedTotal += removeReusableOutputs(nextGroups);
+                if (!nextGroups.isEmpty() && maxGroupSize(nextGroups) < maxGroupSize) {
+                    logInfo("[queue-retry-smaller] nextMaxGroupSize=" + maxGroupSize(nextGroups)
+                            + " pending=" + countTasks(nextGroups));
+                }
+                currentGroups = nextGroups;
+                if (currentGroups.isEmpty()) {
                     continue;
                 }
-                pending = nextPending;
             }
         } finally {
             executor.shutdown();
@@ -199,6 +220,64 @@ final class SelectiveDecompilerExecutor {
             // Release all pooled ZipFile resources
             zipPool.close();
         }
+    }
+
+    private int markReusableOutputs(List<DecompileTask> tasks) {
+        int count = 0;
+        for (DecompileTask task : tasks) {
+            if (hasReusableOutput(task)) {
+                summary.decompiledUnits.incrementAndGet();
+                summary.completedUnits.incrementAndGet();
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private List<DecompileTask> filterUnfinished(List<DecompileTask> tasks) {
+        List<DecompileTask> unfinished = new ArrayList<DecompileTask>();
+        for (DecompileTask task : tasks) {
+            if (!hasReusableOutput(task)) {
+                unfinished.add(task);
+            }
+        }
+        return unfinished;
+    }
+
+    private int removeReusableOutputs(List<List<DecompileTask>> groups) {
+        int completed = 0;
+        for (int i = groups.size() - 1; i >= 0; i--) {
+            List<DecompileTask> group = groups.get(i);
+            for (int j = group.size() - 1; j >= 0; j--) {
+                DecompileTask task = group.get(j);
+                if (hasReusableOutput(task)) {
+                    summary.decompiledUnits.incrementAndGet();
+                    summary.completedUnits.incrementAndGet();
+                    group.remove(j);
+                    completed++;
+                }
+            }
+            if (group.isEmpty()) {
+                groups.remove(i);
+            }
+        }
+        return completed;
+    }
+
+    private int countTasks(List<List<DecompileTask>> groups) {
+        int count = 0;
+        for (List<DecompileTask> group : groups) {
+            count += group.size();
+        }
+        return count;
+    }
+
+    private int maxGroupSize(List<List<DecompileTask>> groups) {
+        int max = 0;
+        for (List<DecompileTask> group : groups) {
+            max = Math.max(max, group.size());
+        }
+        return max;
     }
 
     /**
@@ -288,9 +367,9 @@ final class SelectiveDecompilerExecutor {
             if (remaining.isEmpty()) {
                 scope.succeed();
             } else if (produced > 0 || batchSuccess) {
-                scope.fail(" partial remaining=" + remaining.size());
+                scope.retry(" partial remaining=" + remaining.size());
             } else {
-                scope.fail(" no-output");
+                scope.retry(" no-output");
             }
             return new BatchResult(completed, produced, remaining);
         } finally {
@@ -307,12 +386,9 @@ final class SelectiveDecompilerExecutor {
         optionsMap.put("silent", "true");
         optionsMap.put("outputdir", outputRoot.toString());
 
-        Path inputRoot = outputRoot.getParent().resolve("input");
-        Path jarFile = inputRoot.resolve("batch.jar");
-        createBatchJar(group, jarFile);
-
-        List<String> inputs = new ArrayList<String>();
-        inputs.add(jarFile.toString());
+        Path inputRoot = tempRoot.resolve("class-cache");
+        optionsMap.put("extraclasspath", extraClassPath(inputRoot));
+        List<String> inputs = createBatchClassFiles(group, inputRoot);
 
         try {
             new CfrDriver.Builder().withOptions(optionsMap).build().analyse(inputs);
@@ -323,36 +399,76 @@ final class SelectiveDecompilerExecutor {
         return validateBatchOutputs(group, outputRoot);
     }
 
-    private void createBatchJar(List<DecompileTask> group, Path jarFile) throws IOException {
-        Files.createDirectories(jarFile.getParent());
-        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jarFile))) {
-            Set<String> seenEntries = new HashSet<String>();
-            for (DecompileTask task : group) {
-                if (!seenEntries.add(task.entryName)) {
-                    debug("skip duplicate batch entry: " + task.entryName);
+    private String extraClassPath(Path inputRoot) {
+        if (Files.isDirectory(options.input)) {
+            return inputRoot.toString() + System.getProperty("path.separator") + options.input.toString();
+        }
+        return inputRoot.toString();
+    }
+
+    private List<String> createBatchClassFiles(List<DecompileTask> group, Path inputRoot) throws IOException {
+        Files.createDirectories(inputRoot);
+        Set<String> seenEntries = new HashSet<String>();
+        List<String> inputs = new ArrayList<String>();
+        for (DecompileTask task : group) {
+            if (seenEntries.add(task.entryName)) {
+                inputs.add(resolveClassInput(inputRoot, task.entryName, task.inputSource).toString());
+            } else {
+                debug("skip duplicate batch entry: " + task.entryName);
+            }
+
+            for (String outerEntry : outerEntryNames(task.entryName)) {
+                InputSource outerSource = findOuterClass(task.inputSource, outerEntry);
+                if (outerSource == null) {
+                    debug("outer class not found: " + outerEntry);
                     continue;
                 }
-                out.putNextEntry(new JarEntry(task.entryName));
-                try (InputStream in = openInputSource(task.inputSource)) {
-                    copy(in, out);
-                }
-                out.closeEntry();
-
-                for (String outerEntry : outerEntryNames(task.entryName)) {
-                    if (!seenEntries.add(outerEntry)) continue;
-                    InputSource outerSource = findOuterClass(task.inputSource, outerEntry);
-                    if (outerSource == null) {
-                        debug("outer class not found: " + outerEntry);
-                        continue;
-                    }
-                    out.putNextEntry(new JarEntry(outerEntry));
-                    try (InputStream in = openInputSource(outerSource)) {
-                        copy(in, out);
-                    }
-                    out.closeEntry();
+                if (seenEntries.add(outerEntry)) {
+                    resolveClassInput(inputRoot, outerEntry, outerSource);
                 }
             }
         }
+        return inputs;
+    }
+
+    private Path resolveClassInput(Path inputRoot, String entryName, InputSource source) throws IOException {
+        Path direct = source.directClassFile();
+        if (direct != null) {
+            return direct.toAbsolutePath().normalize();
+        }
+        return materializeClassFile(inputRoot, entryName, source);
+    }
+
+    private Path materializeClassFile(Path inputRoot, String entryName, InputSource source) throws IOException {
+        Path target = inputRoot.resolve(entryName).toAbsolutePath().normalize();
+        Path normalizedRoot = inputRoot.toAbsolutePath().normalize();
+        if (!target.startsWith(normalizedRoot)) {
+            throw new IOException("Unsafe class entry path: " + entryName);
+        }
+        if (isReusableFile(target)) {
+            return target;
+        }
+        Object lock = materializeLock(target.toString());
+        synchronized (lock) {
+            if (isReusableFile(target)) {
+                return target;
+            }
+            Files.createDirectories(target.getParent());
+            try (InputStream in = openInputSource(source)) {
+                Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+        return target;
+    }
+
+    private Object materializeLock(String key) {
+        Object existing = materializeLocks.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        Object created = new Object();
+        Object previous = materializeLocks.putIfAbsent(key, created);
+        return previous == null ? created : previous;
     }
 
     private static List<String> outerEntryNames(String entryName) {
@@ -372,7 +488,7 @@ final class SelectiveDecompilerExecutor {
 
     private boolean validateBatchOutputs(List<DecompileTask> group, Path outputRoot) {
         for (DecompileTask task : group) {
-            Path generated = outputRoot.resolve(toJavaEntry(task.entryName));
+            Path generated = outputRoot.resolve(toSourceJavaEntry(task.entryName));
             if (!isReusableFile(generated)) {
                 return false;
             }
@@ -382,7 +498,7 @@ final class SelectiveDecompilerExecutor {
 
     private void commitAvailableOutputs(List<DecompileTask> group, Path outputRoot) throws IOException {
         for (DecompileTask task : group) {
-            Path generated = outputRoot.resolve(toJavaEntry(task.entryName));
+            Path generated = outputRoot.resolve(toSourceJavaEntry(task.entryName));
             if (!isReusableFile(generated)) {
                 continue;
             }
@@ -414,13 +530,22 @@ final class SelectiveDecompilerExecutor {
         return true;
     }
 
-    private void markPermanentFailures(List<DecompileTask> tasks) {
+    private int markPermanentFailures(List<DecompileTask> tasks) {
+        int count = 0;
         for (DecompileTask task : tasks) {
+            if (hasReusableOutput(task)) {
+                summary.decompiledUnits.incrementAndGet();
+                summary.completedUnits.incrementAndGet();
+                count++;
+                continue;
+            }
             summary.failedUnits.incrementAndGet();
             summary.completedUnits.incrementAndGet();
             summary.failedClasses.add(task.displayName);
             logFailed("permanent-failure " + task.entryName, System.nanoTime());
+            count++;
         }
+        return count;
     }
 
     private boolean hasReusableOutput(DecompileTask task) {
@@ -431,7 +556,7 @@ final class SelectiveDecompilerExecutor {
     }
 
     private Path outputTarget(DecompileTask task) {
-        return task.outputDir.resolve(toJavaEntry(task.entryName)).toAbsolutePath().normalize();
+        return task.outputDir.resolve(toSourceJavaEntry(task.entryName)).toAbsolutePath().normalize();
     }
 
     private Object outputLock(Path target) {
@@ -466,12 +591,18 @@ final class SelectiveDecompilerExecutor {
     }
 
     private void logCreated(String taskName) {
+        if (!options.debug) {
+            return;
+        }
         synchronized (logLock) {
             System.out.println("[task-created] " + taskName);
         }
     }
 
     private void logSucceeded(String taskName, long startedAt) {
+        if (!options.debug) {
+            return;
+        }
         synchronized (logLock) {
             System.out.println("[task-succeeded] " + taskName
                     + " elapsed=" + formatElapsed(startedAt));
@@ -484,7 +615,19 @@ final class SelectiveDecompilerExecutor {
         }
     }
 
+    private void logRetry(String taskName, long startedAt) {
+        if (!options.debug) {
+            return;
+        }
+        synchronized (logLock) {
+            System.out.println("[task-retry] " + taskName + " elapsed=" + formatElapsed(startedAt));
+        }
+    }
+
     private void logSkipped(String taskName) {
+        if (!options.debug) {
+            return;
+        }
         synchronized (logLock) {
             System.out.println("[task-skipped] " + taskName);
         }
@@ -524,12 +667,8 @@ final class SelectiveDecompilerExecutor {
         }
     }
 
-    private static String toJavaEntry(String entryName) {
-        return DecompileUtils.toJavaEntry(entryName);
-    }
-
-    private static void copy(InputStream in, OutputStream out) throws IOException {
-        DecompileUtils.copyStream(in, out);
+    private static String toSourceJavaEntry(String entryName) {
+        return DecompileUtils.toSourceJavaEntry(entryName);
     }
 
     private final class GroupCallable implements Callable<BatchResult> {

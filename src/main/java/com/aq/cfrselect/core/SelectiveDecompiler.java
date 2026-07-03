@@ -86,7 +86,7 @@ public final class SelectiveDecompiler {
     }
 
     private boolean hasReusableOutput(DecompileTask task) {
-        Path outputFile = task.outputDir.resolve(DecompileUtils.toJavaEntry(task.entryName));
+        Path outputFile = task.outputDir.resolve(DecompileUtils.toSourceJavaEntry(task.entryName));
         try {
             return Files.isRegularFile(outputFile) && Files.size(outputFile) > 0;
         } catch (IOException e) {
@@ -94,7 +94,4 @@ public final class SelectiveDecompiler {
         }
     }
 
-    private static String toJavaEntry(String entryName) {
-        return DecompileUtils.toJavaEntry(entryName);
-    }
 }

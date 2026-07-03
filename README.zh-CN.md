@@ -14,12 +14,19 @@
   - `BOOT-INF/classes`
   - `BOOT-INF/lib/*.jar`
 - 支持递归提取并处理嵌套 `.jar` 和 `.war`。
-- 每组 `128` 个 class 批量提交给 CFR，线程池大小等于可用 CPU 数量。
+- 每组 `128` 个 class 批量提交给 CFR，线程池大小可通过 `--threads` 配置。
 - 已存在且非空的 `.java` 文件会作为缓存命中跳过。
 - 未生成产物的 class 会进入下一轮重试；如果某一整轮没有新增产物，剩余 class 会被记录为失败。
 - 会跳过映射到同一个最终 `.java` 路径的重复 class，并记录到 `summary.txt`。
 - 会生成 `manifest.txt`，记录每个已生成 `.java` 文件对应的来源 class。
 - 默认 CFR 参数为 `--hideutf false`，输出编码默认为 UTF-8。
+
+### 性能优化（1.0.5+）
+
+- **可配置线程数** - `--threads <n>` 控制队列并发，默认不超过 `min(4, CPUs)`。
+- **直接 class 输入** - 批量反编译直接传入 class 文件，并复用已物化的归档条目。
+- **单类重试** - 失败批次会拆分为单个 class 重试，同时正确统计已复用输出。
+- **内部类输出映射** - 内部类和匿名类按顶层源文件检查产物，例如 `Outer.java`。
 
 ### 性能优化（1.0.4+）
 
@@ -91,6 +98,7 @@ java -jar cfr-selective-dec.jar <input.jar|input.war|input-dir> <output-dir> [pa
 | `-o, --output <dir>` | 生成 `.java` 文件、`summary.txt` 和 `manifest.txt` 的输出目录。 |
 | `-p, --packages <prefixes>` | 可选包名前缀。多个前缀可用逗号或分号分隔。 |
 | `--output-encoding <charset>` | `.java` 文件输出编码。默认：`UTF-8`。 |
+| `--threads <n>` | 工作线程数。默认：`min(4, CPUs)`。 |
 | `--keep-temp` | 保留临时提取的嵌套归档，便于排查问题。 |
 | `--debug` | 输出完整异常堆栈和调试日志。 |
 | `-h, --help` | 显示命令帮助。 |

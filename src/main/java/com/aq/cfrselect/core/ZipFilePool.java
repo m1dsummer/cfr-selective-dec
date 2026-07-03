@@ -65,6 +65,7 @@ final class ZipFilePool implements Closeable {
         private final ZipFile zipFile;
         private final ConcurrentMap<Path, PooledZipFile> pool;
         private final AtomicInteger refCount = new AtomicInteger(1);
+        private boolean closed;
 
         private PooledZipFile(Path archive, ZipFile zipFile,
                              ConcurrentMap<Path, PooledZipFile> pool) {
@@ -74,7 +75,7 @@ final class ZipFilePool implements Closeable {
         }
 
         private synchronized boolean tryInc() {
-            if (zipFile == null) return false; // already closed
+            if (closed) return false;
             refCount.incrementAndGet();
             return true;
         }
@@ -96,21 +97,30 @@ final class ZipFilePool implements Closeable {
             decAndCloseIfZero();
         }
 
-        private void decAndCloseIfZero() {
+        private synchronized void decAndCloseIfZero() {
+            if (closed) {
+                return;
+            }
             if (refCount.decrementAndGet() == 0) {
-                forceClose();
+                forceCloseLocked();
             }
         }
 
         private synchronized void forceClose() {
-            if (zipFile != null) {
-                try {
-                    ((ZipFile) zipFile).close();
-                } catch (IOException ignored) {
-                    // best effort
-                }
-                pool.remove(archive, this);
+            forceCloseLocked();
+        }
+
+        private void forceCloseLocked() {
+            if (closed) {
+                return;
             }
+            closed = true;
+            try {
+                zipFile.close();
+            } catch (IOException ignored) {
+                // best effort
+            }
+            pool.remove(archive, this);
         }
     }
 }

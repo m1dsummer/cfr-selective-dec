@@ -16,6 +16,18 @@ final class DecompileUtils {
         return entryName.substring(0, entryName.length() - ".class".length()) + ".java";
     }
 
+    static String toSourceJavaEntry(String entryName) {
+        String withoutSuffix = entryName.substring(0, entryName.length() - ".class".length());
+        int slash = withoutSuffix.lastIndexOf('/');
+        String prefix = slash >= 0 ? withoutSuffix.substring(0, slash + 1) : "";
+        String simpleName = slash >= 0 ? withoutSuffix.substring(slash + 1) : withoutSuffix;
+        int innerMarker = simpleName.indexOf('$');
+        if (innerMarker >= 0) {
+            simpleName = simpleName.substring(0, innerMarker);
+        }
+        return prefix + simpleName + ".java";
+    }
+
     static String toClassName(String entryName) {
         String withoutSuffix = entryName.substring(0, entryName.length() - ".class".length());
         return withoutSuffix.replace('/', '.').replace('\\', '.');
