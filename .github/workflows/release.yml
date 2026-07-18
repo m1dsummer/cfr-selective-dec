@@ -18,7 +18,6 @@ on:
         description: "Release notes"
         required: false
         type: string
-        default: "Manual release"
 
 permissions:
   contents: write
@@ -30,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -44,24 +45,58 @@ jobs:
       - name: Resolve release metadata
         id: release_meta
         shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_BODY: ${{ inputs.body }}
         run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $tag = "${{ inputs.tag }}"
-            $name = "${{ inputs.release_name }}"
-            $body = "${{ inputs.body }}"
+          if ($env:EVENT_NAME -eq "workflow_dispatch") {
+            $tag = $env:INPUT_TAG
+            $name = $env:INPUT_RELEASE_NAME
+            $body = $env:INPUT_BODY
           } else {
-            $tag = "${{ github.ref_name }}"
-            $name = "${{ github.ref_name }}"
-            $body = "添加workflow自动编译"
+            $tag = $env:REF_NAME
+            $name = $env:REF_NAME
+            $body = ""
           }
+
           if ([string]::IsNullOrWhiteSpace($name)) {
             $name = $tag
           }
+
+          if ([string]::IsNullOrWhiteSpace($body)) {
+            $tagType = (git cat-file -t "refs/tags/$tag").Trim()
+            if ($tagType -eq "tag") {
+              $body = (git for-each-ref "refs/tags/$tag" --format="%(contents)" | Out-String).Trim()
+            }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($body)) {
+            $previousTag = git tag --merged $tag --sort=-v:refname |
+              Where-Object { $_ -ne $tag -and $_ -match '^v?\d+\.\d+\.\d+$' } |
+              Select-Object -First 1
+
+            if ([string]::IsNullOrWhiteSpace($previousTag)) {
+              $commits = @(git log --reverse --pretty=format:"- %s (%h)" $tag)
+            } else {
+              $commits = @(git log --reverse --pretty=format:"- %s (%h)" "${previousTag}..${tag}")
+            }
+
+            if ($commits.Count -eq 0) {
+              $body = "更新内容：`n`n- 未检测到新的提交说明。"
+            } else {
+              $body = "更新内容：`n`n$($commits -join "`n")"
+            }
+          }
+
+          $delimiter = "EOF_$([Guid]::NewGuid().ToString('N'))"
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "name=$name" >> $env:GITHUB_OUTPUT
-          "body<<EOF" >> $env:GITHUB_OUTPUT
+          "body<<$delimiter" >> $env:GITHUB_OUTPUT
           $body >> $env:GITHUB_OUTPUT
-          "EOF" >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
