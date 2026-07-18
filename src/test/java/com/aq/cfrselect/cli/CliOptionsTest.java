@@ -22,7 +22,8 @@ public class CliOptionsTest {
                 "--input", input.getAbsolutePath(),
                 "--output", output.getAbsolutePath(),
                 "--packages", "com.foo,org.demo",
-                "--threads", "2"
+                "--threads", "2",
+                "--no-nested"
         });
 
         assertEquals(input.toPath().toAbsolutePath().normalize(), options.input);
@@ -31,6 +32,7 @@ public class CliOptionsTest {
         assertEquals("com.foo", options.packages.get(0));
         assertEquals("org.demo", options.packages.get(1));
         assertEquals(2, options.threads);
+        assertFalse(options.processNestedArchives);
         assertFalse(options.help);
     }
 
@@ -43,6 +45,18 @@ public class CliOptionsTest {
                 input.getAbsolutePath(),
                 output.getAbsolutePath(),
                 "--unknown"
+        });
+    }
+
+    @Test(expected = UsageException.class)
+    public void rejectsOutputDirectoryThatContainsInputDirectory() throws Exception {
+        File output = temp.newFolder("output");
+        File input = new File(output, "input");
+        input.mkdirs();
+
+        CliOptions.parse(new String[] {
+                "--input", input.getAbsolutePath(),
+                "--output", output.getAbsolutePath()
         });
     }
 }

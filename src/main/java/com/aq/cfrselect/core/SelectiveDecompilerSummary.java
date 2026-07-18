@@ -8,23 +8,26 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 final class SelectiveDecompilerSummary {
     final AtomicInteger matchedClasses = new AtomicInteger();
+    final AtomicInteger sourceUnits = new AtomicInteger();
     final AtomicInteger decompiledUnits = new AtomicInteger();
     final AtomicInteger failedUnits = new AtomicInteger();
     final AtomicInteger completedUnits = new AtomicInteger();
     final AtomicInteger totalQueueTasks = new AtomicInteger();
+    final AtomicInteger cacheHits = new AtomicInteger();
     final AtomicInteger duplicateUnits = new AtomicInteger();
-    final List<String> failedClasses = new CopyOnWriteArrayList<String>();
-    final List<String> duplicateClasses = new CopyOnWriteArrayList<String>();
+    final List<String> failedClasses = new ArrayList<String>();
+    final List<String> duplicateClasses = new ArrayList<String>();
 
     void write(Path summaryFile) throws IOException {
         List<String> lines = new ArrayList<String>();
         lines.add("group_size=" + SelectiveDecompilerExecutor.GROUP_SIZE);
+        lines.add("source_units=" + sourceUnits.get());
         lines.add("queue_tasks=" + totalQueueTasks.get());
+        lines.add("cache_hits=" + cacheHits.get());
         lines.add("success=" + decompiledUnits.get());
         lines.add("failed=" + failedUnits.get());
         lines.add("completed=" + completedUnits.get());

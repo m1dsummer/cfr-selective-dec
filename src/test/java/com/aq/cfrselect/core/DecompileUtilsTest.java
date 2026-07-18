@@ -6,18 +6,13 @@ import static org.junit.Assert.assertEquals;
 
 public class DecompileUtilsTest {
     @Test
-    public void sourceJavaEntryUsesTopLevelClassForInnerClasses() {
-        assertEquals("com/acme/Outer.java",
-                DecompileUtils.toSourceJavaEntry("com/acme/Outer$Inner.class"));
-        assertEquals("com/acme/Outer.java",
-                DecompileUtils.toSourceJavaEntry("com/acme/Outer$1.class"));
-        assertEquals("com/acme/Outer.java",
-                DecompileUtils.toSourceJavaEntry("com/acme/Outer$Inner$Nested.class"));
+    public void javaEntryPreservesDollarForTopLevelClassNames() {
+        assertEquals("com/acme/Outer$Inner.java",
+                DecompileUtils.toJavaEntry("com/acme/Outer$Inner.class"));
     }
 
     @Test
-    public void sourceJavaEntryKeepsTopLevelClassName() {
-        assertEquals("com/acme/App.java",
-                DecompileUtils.toSourceJavaEntry("com/acme/App.class"));
+    public void javaEntryKeepsTopLevelClassName() {
+        assertEquals("com/acme/App.java", DecompileUtils.toJavaEntry("com/acme/App.class"));
     }
 }

@@ -1,19 +1,36 @@
 package com.aq.cfrselect.core;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.zip.ZipEntry;
 
 final class ZipInputSource implements InputSource {
     final Path archive;
-    private final String entryName;
+    final String entryName;
+    final long crc;
+    final long size;
+    final String containerFingerprint;
     // Prefix stripped by mapJarClassEntry (e.g. "BOOT-INF/classes/"), empty if none
     final String entryPrefix;
 
     ZipInputSource(Path archive, String entryName) {
-        this.archive = archive;
+        this(archive, entryName, -1L, -1L,
+                archive.toAbsolutePath().normalize() + "|"
+                        + archive.toFile().length() + "|" + archive.toFile().lastModified());
+    }
+
+    ZipInputSource(Path archive, String entryName, long crc, long size) {
+        this(archive, entryName, crc, size,
+                archive.toAbsolutePath().normalize() + "|"
+                        + archive.toFile().length() + "|" + archive.toFile().lastModified());
+    }
+
+    ZipInputSource(Path archive, String entryName, long crc, long size,
+                   String containerFingerprint) {
+        this.archive = archive.toAbsolutePath().normalize();
         this.entryName = entryName;
+        this.crc = crc;
+        this.size = size;
+        this.containerFingerprint = containerFingerprint;
         this.entryPrefix = entryPrefix(entryName);
     }
 
@@ -23,96 +40,23 @@ final class ZipInputSource implements InputSource {
         return "";
     }
 
-    /**
-     * Open an input stream for this entry using the shared ZipFile pool.
-     * The pool avoids repeated central directory reads for the same archive.
-     */
-    InputStream open(ZipFilePool pool) throws IOException {
-        ZipFilePool.PooledZipFile pzf = pool.acquire(archive);
-        ZipEntry entry = pzf.getEntry(entryName);
-        if (entry == null) {
-            pzf.close();
-            throw new IOException("Missing zip entry: " + entryName + " in " + archive);
-        }
-        final InputStream delegate = pzf.getInputStream(entry);
-        return new InputStream() {
-            private boolean closed = false;
-
-            @Override
-            public int read() throws IOException {
-                return delegate.read();
-            }
-
-            @Override
-            public int read(byte[] b, int off, int len) throws IOException {
-                return delegate.read(b, off, len);
-            }
-
-            @Override
-            public void close() throws IOException {
-                if (closed) return;
-                closed = true;
-                try {
-                    delegate.close();
-                } finally {
-                    pzf.close(); // release pooled handle
-                }
-            }
-        };
-    }
-
-    /**
-     * Check whether a sibling entry exists in the same archive using the pool.
-     */
-    InputSource sibling(String siblingEntryName, ZipFilePool pool) {
-        String actual = entryPrefix + siblingEntryName;
-        try (ZipFilePool.PooledZipFile pzf = pool.acquire(archive)) {
-            return pzf.getEntry(actual) != null ? new ZipInputSource(archive, actual) : null;
-        }
-    }
-
-    /**
-     * Legacy no-pool methods kept for backward compatibility with InputSource interface.
-     * Prefer using the pool-based overloads where a pool is available.
-     */
     @Override
-    public InputStream open() throws IOException {
-        final java.util.zip.ZipFile zipFile = new java.util.zip.ZipFile(archive.toFile());
-        final ZipEntry entry = zipFile.getEntry(entryName);
-        if (entry == null) {
-            zipFile.close();
-            throw new IOException("Missing zip entry: " + entryName + " in " + archive);
-        }
-        final InputStream delegate = zipFile.getInputStream(entry);
-        return new InputStream() {
-            @Override
-            public int read() throws IOException {
-                return delegate.read();
-            }
-
-            @Override
-            public int read(byte[] b, int off, int len) throws IOException {
-                return delegate.read(b, off, len);
-            }
-
-            @Override
-            public void close() throws IOException {
-                try {
-                    delegate.close();
-                } finally {
-                    zipFile.close();
-                }
-            }
-        };
+    public Path directClassFile() {
+        return null;
     }
 
     @Override
-    public InputSource sibling(String siblingEntryName) {
-        String actual = entryPrefix + siblingEntryName;
-        try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(archive.toFile())) {
-            return zf.getEntry(actual) != null ? new ZipInputSource(archive, actual) : null;
-        } catch (IOException e) {
-            return null;
-        }
+    public Path classPathRoot() {
+        return null;
+    }
+
+    @Override
+    public String sourceKey() {
+        return "zip:" + archive;
+    }
+
+    @Override
+    public String fingerprint() throws IOException {
+        return "zip|" + containerFingerprint + "|" + entryName + "|" + crc + "|" + size;
     }
 }

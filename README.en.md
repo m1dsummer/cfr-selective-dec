@@ -13,10 +13,10 @@ A CFR-based batch decompiler for local Java auditing. It scans `.jar`, `.war`, c
   - `WEB-INF/lib/*.jar`
   - `BOOT-INF/classes`
   - `BOOT-INF/lib/*.jar`
-- Recursively extract and process nested `.jar` and `.war` files.
-- Process classes in groups of `128` using a configurable worker pool.
-- Reuse existing non-empty `.java` outputs as cache hits.
-- Retry classes that did not produce output; failed batches are split down to single classes before permanent failure.
+- Recursively extract and process nested `.jar` and `.war` files, or skip them with `--no-nested`.
+- Aggregate classes by top-level Java source within one input source, then process up to `128` source units per group without mixing archives.
+- Reuse an existing `.java` only when its source-class, CFR-version, and output-option fingerprint matches.
+- Split failed batches directly into single source units before permanent failure.
 - Skip duplicate classes that map to the same final `.java` path and record them in `summary.txt`.
 - Write `manifest.txt` with one source mapping for each generated `.java` file.
 - Use CFR with `--hideutf false` and UTF-8 output by default.
@@ -24,14 +24,17 @@ A CFR-based batch decompiler for local Java auditing. It scans `.jar`, `.war`, c
 ### Performance (1.0.5+)
 
 - **Configurable workers** - `--threads <n>` controls queue concurrency; the default is capped at `min(4, CPUs)`.
-- **Direct class inputs** - batch decompilation now passes class files directly to CFR and reuses materialized archive entries.
-- **Single-class retries** - failed groups are split to individual classes while reusable outputs are counted accurately.
-- **Inner-class output mapping** - inner and anonymous classes are checked against the top-level source file such as `Outer.java`.
+- **Source isolation** - each JAR, WAR, or class root has its own groups and classpath, preventing same-name classes from crossing archives.
+- **Source-unit aggregation** - `InnerClasses`/`EnclosingMethod` attributes identify families without merging genuine top-level `$` classes.
+- **Single archive preparation** - each source archive is opened once and its workspace is reused by retries.
+- **Balanced groups** - groups are evenly sized without increasing CFR invocation count, avoiding `128+1` tails.
+- **Safe cache** - class metadata and decompiler-option fingerprints invalidate stale output automatically.
+- **Unit failure isolation** - one damaged class does not block other source units from the same archive.
+- **Single-unit retries** - failed groups split directly into source units; binary backoff is not used.
+- **Atomic output commits** - generated source is staged beside the target and then moved into place atomically.
 
 ### Performance (1.0.4+)
 
-- **ZipFile pool** - reuses open `ZipFile` handles across batch tasks via reference counting, eliminating repeated central directory reads.
-- **Entry name index** - pre-built `Map<String, ZipInputSource>` enables O(1) outer class lookup instead of scanning all archives.
 - **Single-pass directory walk** - merged two `Files.walk()` calls into one pass when scanning directories.
 - **32 KB IO buffers** - stream copy buffers increased from 8 KB to 32 KB.
 - **Streaming recursive delete** - `Files.walkFileTree()` replaces full-path-list collection.
@@ -99,6 +102,7 @@ java -jar cfr-selective-dec.jar <input.jar|input.war|input-dir> <output-dir> [pa
 | `-p, --packages <prefixes>` | Optional package prefixes. Use commas or semicolons to separate multiple prefixes. |
 | `--output-encoding <charset>` | Output encoding for `.java` files. Default: `UTF-8`. |
 | `--threads <n>` | Worker thread count. Default: `min(4, CPUs)`. |
+| `--no-nested` | Skip nested JAR/WAR files when only application classes are needed. |
 | `--keep-temp` | Keep temporary extracted archives for troubleshooting. |
 | `--debug` | Print full exception stack traces and debug logs. |
 | `-h, --help` | Show command help. |
@@ -149,17 +153,19 @@ java -jar target/cfr-selective-dec.jar --input app.war --output out --keep-temp
 1. Scan the input path for `.class`, `.jar`, and `.war` files.
 2. Normalize archive layouts such as `WEB-INF/classes` and `BOOT-INF/classes`.
 3. Filter class entries by package prefix.
-4. Remove duplicate tasks that would produce the same final `.java` file.
-5. Decompile classes in groups of `128`.
-6. Check the output directory for non-empty `.java` files after each batch.
-7. Requeue classes without output and split failed batches down to single classes before permanent failure.
+4. Isolate tasks by source archive or class root and aggregate inner classes into top-level source units.
+5. Open each archive once and prepare an isolated workspace for its pending classes.
+6. Decompile up to `128` source units per group.
+7. Split failed batches directly into single source units before permanent failure.
 
 ## Summary Report
 
 Each run writes `summary.txt` to the output directory. It includes:
 
 - `group_size`: batch size used by the queue.
+- `source_units`: Java source units after inner-class aggregation.
 - `queue_tasks`: number of batch tasks submitted.
+- `cache_hits`: classes reused through a valid fingerprint.
 - `success`: classes with generated or cached `.java` output.
 - `failed`: classes left unresolved after retries.
 - `completed`: classes that reached a terminal state.
@@ -185,6 +191,8 @@ The tool handles untrusted archives defensively:
 
 - Archive entry names are validated to reject absolute paths, drive-letter paths, empty path segments, `.`, `..`, and NUL characters.
 - Nested archives are copied to random temporary paths before processing.
+- Limits are 1,000,000 total entries, depth 16, 10,000 nested archives, and 8 GiB extracted bytes.
+- A class entry inside an archive is limited to 64 MiB.
 - Generated source files are written only under the configured output directory.
 - Large files are copied with fixed-size buffers instead of loading them fully into memory.
 

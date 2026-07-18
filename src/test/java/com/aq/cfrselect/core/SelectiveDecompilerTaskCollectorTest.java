@@ -14,6 +14,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 public class SelectiveDecompilerTaskCollectorTest {
     @Rule
@@ -101,6 +102,53 @@ public class SelectiveDecompilerTaskCollectorTest {
         assertEquals("com.acme.App", tasks.get(0).className);
         assertEquals(options.output.resolve("input"), tasks.get(0).outputDir);
         assertEquals(classFile.toPath().toAbsolutePath().normalize().toString(), tasks.get(0).sourceLocation);
+    }
+
+    @Test
+    public void separatesDirectoryRootFromJarWithSameOutputName() throws Exception {
+        File input = temp.newFolder("input");
+        File output = new File(temp.getRoot(), "out");
+        File directoryClass = new File(input, "foo/com/acme/Duplicate.class");
+        directoryClass.getParentFile().mkdirs();
+        try (FileOutputStream out = new FileOutputStream(directoryClass)) {
+            out.write(new byte[] { 0, 1, 2, 3 });
+        }
+        writeJar(new File(input, "foo.jar"), "com/acme/Duplicate.class");
+
+        CliOptions options = CliOptions.parse(new String[] {
+                "--input", input.getAbsolutePath(),
+                "--output", output.getAbsolutePath(),
+                "--packages", "com.acme"
+        });
+        SelectiveDecompilerSummary summary = new SelectiveDecompilerSummary();
+        SelectiveDecompilerTaskCollector collector = new SelectiveDecompilerTaskCollector(
+                options, new PackageMatcher(options.packages), temp.newFolder("tmp").toPath(), summary);
+
+        List<DecompileTask> tasks = collector.collect();
+
+        assertEquals(2, tasks.size());
+        assertEquals(0, summary.duplicateUnits.get());
+        assertFalse(tasks.get(0).outputDir.equals(tasks.get(1).outputDir));
+    }
+
+    @Test
+    public void noNestedSkipsNestedArchiveWithoutOpeningIt() throws Exception {
+        File input = temp.newFolder("input");
+        File output = new File(temp.getRoot(), "out");
+        writeJar(new File(input, "outer.jar"), "lib/broken-inner.jar");
+
+        CliOptions options = CliOptions.parse(new String[] {
+                "--input", input.getAbsolutePath(),
+                "--output", output.getAbsolutePath(),
+                "--no-nested"
+        });
+        SelectiveDecompilerSummary summary = new SelectiveDecompilerSummary();
+        SelectiveDecompilerTaskCollector collector = new SelectiveDecompilerTaskCollector(
+                options, new PackageMatcher(options.packages), temp.newFolder("tmp").toPath(), summary);
+
+        List<DecompileTask> tasks = collector.collect();
+
+        assertEquals(0, tasks.size());
     }
 
     private static void writeJar(File jarFile, String entryName) throws Exception {

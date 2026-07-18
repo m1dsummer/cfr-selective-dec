@@ -2,6 +2,21 @@
 
 All notable changes are listed with the newest version first.
 
+## Unreleased
+
+- Isolated queue groups and temporary classpaths by source archive or class root, preventing same-name classes from different inputs from sharing bytecode or generated output.
+- Aggregated top-level, inner, and anonymous class files into one Java source unit, reducing redundant CFR inputs and retries.
+- Replaced the reference-counted `ZipFilePool` and global entry index with one-time per-source workspace preparation.
+- Kept direct single-unit retries for failed batches; binary backoff is intentionally not used.
+- Added exact-target output locks, atomic output commits, best-effort temporary cleanup, and JVM-fatal error propagation.
+- Added CFR integration coverage for cross-archive same-name classes and outer/inner source aggregation.
+- Balanced groups without adding CFR calls, while retaining direct single-unit retries.
+- Added fingerprint-backed output caching with automatic stale-output replacement and `cache_hits` reporting.
+- Replaced `$` filename heuristics with `InnerClasses` and `EnclosingMethod` metadata.
+- Isolated per-class workspace extraction failures and resolved colliding source output namespaces.
+- Added `--no-nested` plus limits for nesting depth, archive count, entry count, extracted bytes, and class-entry size.
+- Rejected output directories that contain the input directory and removed quadratic failure-list writes.
+
 ## 1.0.5
 
 - Added `--threads <n>` to control worker concurrency. The default is capped at `min(4, CPUs)` to avoid saturating the host by default.

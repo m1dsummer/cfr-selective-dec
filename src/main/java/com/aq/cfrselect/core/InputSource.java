@@ -1,17 +1,14 @@
 package com.aq.cfrselect.core;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Path;
 
 interface InputSource {
-    InputStream open() throws IOException;
+    Path directClassFile();
 
-    default Path directClassFile() {
-        return null;
-    }
+    Path classPathRoot();
 
-    default InputSource sibling(String siblingEntryName) {
-        return null;
-    }
+    String sourceKey();
+
+    String fingerprint() throws IOException;
 }

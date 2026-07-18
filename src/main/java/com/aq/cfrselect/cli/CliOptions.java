@@ -21,9 +21,11 @@ public final class CliOptions {
     public final boolean debug;
     public final boolean help;
     public final int threads;
+    public final boolean processNestedArchives;
 
     private CliOptions(Path input, Path output, List<String> packages, String outputEncoding,
-                       boolean keepTemp, boolean debug, boolean help, int threads) {
+                       boolean keepTemp, boolean debug, boolean help, int threads,
+                       boolean processNestedArchives) {
         this.input = input;
         this.output = output;
         this.packages = packages;
@@ -32,12 +34,14 @@ public final class CliOptions {
         this.debug = debug;
         this.help = help;
         this.threads = threads;
+        this.processNestedArchives = processNestedArchives;
     }
 
     public static CliOptions parse(String[] args) {
         if (args.length == 0 || has(args, "-h") || has(args, "--help")) {
             return new CliOptions(null, null, Collections.<String>emptyList(),
-                    ArchiveNames.DEFAULT_OUTPUT_ENCODING, false, has(args, "--debug"), true, defaultThreads());
+                    ArchiveNames.DEFAULT_OUTPUT_ENCODING, false, has(args, "--debug"), true,
+                    defaultThreads(), !has(args, "--no-nested"));
         }
 
         if (args[0].startsWith("-")) {
@@ -65,6 +69,7 @@ public final class CliOptions {
         boolean keepTemp = false;
         boolean debug = false;
         int threads = defaultThreads();
+        boolean processNestedArchives = true;
         String outputEncoding = ArchiveNames.DEFAULT_OUTPUT_ENCODING;
         List<String> packages = new ArrayList<>();
         for (int i = 2; i < args.length; i++) {
@@ -77,13 +82,16 @@ public final class CliOptions {
                 outputEncoding = nextValue(args, ++i, arg);
             } else if ("--threads".equals(arg)) {
                 threads = parseThreads(nextValue(args, ++i, arg));
+            } else if ("--no-nested".equals(arg)) {
+                processNestedArchives = false;
             } else if (arg.startsWith("-")) {
                 throw new UsageException("Unknown option: " + arg);
             } else {
                 packages.addAll(parsePackages(new String[] { arg }));
             }
         }
-        return validate(new CliOptions(input, output, packages, outputEncoding, keepTemp, debug, false, threads));
+        return validate(new CliOptions(input, output, packages, outputEncoding, keepTemp, debug,
+                false, threads, processNestedArchives));
     }
 
     private static CliOptions parseNamed(String[] args) {
@@ -92,6 +100,7 @@ public final class CliOptions {
         boolean keepTemp = false;
         boolean debug = false;
         int threads = defaultThreads();
+        boolean processNestedArchives = true;
         String outputEncoding = ArchiveNames.DEFAULT_OUTPUT_ENCODING;
         List<String> packages = new ArrayList<>();
 
@@ -117,6 +126,9 @@ public final class CliOptions {
                 case "--threads":
                     threads = parseThreads(nextValue(args, ++i, arg));
                     break;
+                case "--no-nested":
+                    processNestedArchives = false;
+                    break;
                 case "--keep-temp":
                     keepTemp = true;
                     break;
@@ -128,7 +140,8 @@ public final class CliOptions {
             }
         }
 
-        return validate(new CliOptions(input, output, packages, outputEncoding, keepTemp, debug, false, threads));
+        return validate(new CliOptions(input, output, packages, outputEncoding, keepTemp, debug,
+                false, threads, processNestedArchives));
     }
 
     private static CliOptions validate(CliOptions options) {
@@ -144,8 +157,8 @@ public final class CliOptions {
         if (options.output == null) {
             throw new UsageException("Missing output directory.");
         }
-        if (Files.isDirectory(options.input) && options.input.equals(options.output)) {
-            throw new UsageException("Output directory must not be the same as the input directory.");
+        if (Files.isDirectory(options.input) && options.input.startsWith(options.output)) {
+            throw new UsageException("Output directory must not be the input directory or its parent.");
         }
         try {
             Charset.forName(options.outputEncoding);

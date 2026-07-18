@@ -33,6 +33,8 @@ public final class SelectiveDecompiler {
             SelectiveDecompilerTaskCollector collector =
                     new SelectiveDecompilerTaskCollector(options, matcher, tempRoot, summary);
             List<DecompileTask> tasks = collector.collect();
+            OutputCache outputCache = new OutputCache(
+                    options.output.resolve(".cfr-select-cache.properties"), options);
 
             System.out.println("Matched unique class files: " + tasks.size());
             if (summary.duplicateUnits.get() > 0) {
@@ -40,11 +42,17 @@ public final class SelectiveDecompiler {
             }
 
             SelectiveDecompilerExecutor executor =
-                    new SelectiveDecompilerExecutor(options, tempRoot, summary);
+                    new SelectiveDecompilerExecutor(options, tempRoot, summary, outputCache);
             executor.runQueues(tasks);
 
+            try {
+                outputCache.write();
+            } catch (IOException e) {
+                System.err.println("Warning: failed to write output cache: " + e.getMessage());
+                if (options.debug) e.printStackTrace(System.err);
+            }
             summary.write(options.output.resolve("summary.txt"));
-            writeManifest(tasks, options.output.resolve("manifest.txt"));
+            writeManifest(tasks, options.output.resolve("manifest.txt"), outputCache);
 
             if (summary.matchedClasses.get() > 0) {
                 System.out.println("Finished: success=" + summary.decompiledUnits.get()
@@ -63,10 +71,12 @@ public final class SelectiveDecompiler {
         }
     }
 
-    private void writeManifest(List<DecompileTask> tasks, Path manifestFile) throws IOException {
+    private void writeManifest(List<DecompileTask> tasks, Path manifestFile,
+                               OutputCache outputCache) throws IOException {
         List<DecompileTask> completedTasks = new ArrayList<DecompileTask>();
         for (DecompileTask task : tasks) {
-            if (hasReusableOutput(task)) {
+            Path outputFile = task.outputDir.resolve(task.sourceEntryName);
+            if (outputCache.isCompleted(outputFile)) {
                 completedTasks.add(task);
             }
         }
@@ -83,15 +93,6 @@ public final class SelectiveDecompiler {
         }
         Files.write(manifestFile, lines, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-    }
-
-    private boolean hasReusableOutput(DecompileTask task) {
-        Path outputFile = task.outputDir.resolve(DecompileUtils.toSourceJavaEntry(task.entryName));
-        try {
-            return Files.isRegularFile(outputFile) && Files.size(outputFile) > 0;
-        } catch (IOException e) {
-            return false;
-        }
     }
 
 }

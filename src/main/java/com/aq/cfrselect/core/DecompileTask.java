@@ -9,15 +9,24 @@ final class DecompileTask {
     final String className;
     final String sourceLocation;
     final InputSource inputSource;
+    final String outerEntryName;
+    String sourceEntryName;
 
     DecompileTask(String displayName, Path outputDir, String entryName,
                   String sourceLocation, InputSource inputSource) {
+        this(displayName, outputDir, entryName, sourceLocation, inputSource, null);
+    }
+
+    DecompileTask(String displayName, Path outputDir, String entryName,
+                  String sourceLocation, InputSource inputSource, String outerEntryName) {
         this.displayName = displayName;
         this.outputDir = outputDir;
         this.entryName = entryName;
         this.className = DecompileUtils.toClassName(entryName);
         this.sourceLocation = sourceLocation;
         this.inputSource = inputSource;
+        this.outerEntryName = outerEntryName;
+        this.sourceEntryName = DecompileUtils.toJavaEntry(entryName);
     }
 
 }
