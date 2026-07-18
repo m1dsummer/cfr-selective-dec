@@ -2,20 +2,20 @@
 
 All notable changes are listed with the newest version first.
 
-## Unreleased
+## 1.0.6
 
-- Isolated queue groups and temporary classpaths by source archive or class root, preventing same-name classes from different inputs from sharing bytecode or generated output.
-- Aggregated top-level, inner, and anonymous class files into one Java source unit, reducing redundant CFR inputs and retries.
-- Replaced the reference-counted `ZipFilePool` and global entry index with one-time per-source workspace preparation.
-- Kept direct single-unit retries for failed batches; binary backoff is intentionally not used.
-- Added exact-target output locks, atomic output commits, best-effort temporary cleanup, and JVM-fatal error propagation.
-- Added CFR integration coverage for cross-archive same-name classes and outer/inner source aggregation.
-- Balanced groups without adding CFR calls, while retaining direct single-unit retries.
-- Added fingerprint-backed output caching with automatic stale-output replacement and `cache_hits` reporting.
-- Replaced `$` filename heuristics with `InnerClasses` and `EnclosingMethod` metadata.
-- Isolated per-class workspace extraction failures and resolved colliding source output namespaces.
-- Added `--no-nested` plus limits for nesting depth, archive count, entry count, extracted bytes, and class-entry size.
-- Rejected output directories that contain the input directory and removed quadratic failure-list writes.
+- 按来源归档或 class 根目录隔离队列分组和临时 classpath，避免不同输入中的同名类共享字节码或生成结果。
+- 将顶层类、内部类和匿名类聚合为一个 Java 源码单元，减少重复的 CFR 输入与重试。
+- 使用每个来源一次性准备的独立工作区，替换带引用计数的 `ZipFilePool` 和全局条目索引。
+- 失败批次仍直接按单个源码单元重试，明确不使用二分退避重试。
+- 增加精确目标输出锁、原子提交、临时文件尽力清理以及 JVM 致命错误继续抛出机制。
+- 增加 CFR 集成测试，覆盖跨归档同名类以及外部类、内部类源码聚合场景。
+- 在不增加 CFR 调用次数的前提下均衡分组，同时保留失败后的单单元直接重试。
+- 增加基于指纹的输出缓存、过期源码自动替换以及 `cache_hits` 统计。
+- 使用 `InnerClasses` 和 `EnclosingMethod` 元数据替换 `$` 文件名推断，避免误合并顶层类。
+- 隔离单个 class 的工作区提取故障，并解决不同来源的输出命名空间冲突。
+- 增加 `--no-nested`，并限制嵌套深度、归档数量、条目数量、提取字节数和单个 class 条目大小。
+- 拒绝包含输入目录的输出目录配置，并移除失败列表写入的 O(N²) 开销。
 
 ## 1.0.5
 
