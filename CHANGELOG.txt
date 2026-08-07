@@ -2,6 +2,11 @@
 
 All notable changes are listed with the newest version first.
 
+## 1.0.6
+
+- When a nested or top-level archive cannot be opened by JDK `ZipFile`, print a `[warn]` and skip that archive instead of aborting the run.
+- Normalized build artifact names: thin jar `cfr-selective-dec-<version>.jar`, shaded runnable jar `cfr-selective-dec-<version>-with-dependencies.jar`.
+
 ## 1.0.5
 
 - Added `--threads <n>` to control worker concurrency. The default is capped at `min(4, CPUs)` to avoid saturating the host by default.

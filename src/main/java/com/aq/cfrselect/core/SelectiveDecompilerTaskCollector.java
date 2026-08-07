@@ -17,7 +17,6 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -146,14 +145,21 @@ final class SelectiveDecompilerTaskCollector {
     private void processJar(Path jarFile, Path outputDir, String displayName,
                             String sourceArchiveLabel, List<DecompileTask> tasks)
             throws IOException, InterruptedException {
-        try (ZipFile zip = new ZipFile(jarFile.toFile())) {
+        final ZipFile zip;
+        try {
+            zip = new ZipFile(jarFile.toFile());
+        } catch (IOException openEx) {
+            warnSkipArchive(sourceArchiveLabel, displayName, openEx);
+            return;
+        }
+        try {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                String entryName = ArchiveNames.requireSafeJarEntryName(entry.getName(), displayName);
                 if (entry.isDirectory()) {
                     continue;
                 }
+                String entryName = ArchiveNames.requireSafeJarEntryName(entry.getName(), displayName);
                 if (ArchiveNames.isNestedArchive(entryName)) {
                     Path nested = extractNested(zip, entry);
                     processArchive(nested, outputDir.resolve("nested"), ArchiveNames.safeArchiveOutputName(entryName),
@@ -169,19 +175,28 @@ final class SelectiveDecompilerTaskCollector {
                         sourceArchiveLabel + "!" + DecompileUtils.toClassName(mapped),
                         new ZipInputSource(jarFile, entryName)));
             }
+        } finally {
+            zip.close();
         }
     }
 
     private void processWar(Path warFile, Path outputDir, String sourceArchiveLabel, List<DecompileTask> tasks)
             throws IOException, InterruptedException {
-        try (ZipFile zip = new ZipFile(warFile.toFile())) {
+        final ZipFile zip;
+        try {
+            zip = new ZipFile(warFile.toFile());
+        } catch (IOException openEx) {
+            warnSkipArchive(sourceArchiveLabel, warFile.getFileName().toString(), openEx);
+            return;
+        }
+        try {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                String name = ArchiveNames.requireSafeJarEntryName(entry.getName(), warFile.toString());
                 if (entry.isDirectory()) {
                     continue;
                 }
+                String name = ArchiveNames.requireSafeJarEntryName(entry.getName(), warFile.toString());
 
                 if (name.startsWith(ArchiveNames.WEB_LIB) && name.toLowerCase().endsWith(".jar")) {
                     Path libJar = extractNested(zip, entry);
@@ -214,6 +229,16 @@ final class SelectiveDecompilerTaskCollector {
                         sourceArchiveLabel + "!" + DecompileUtils.toClassName(mapped),
                         new ZipInputSource(warFile, name)));
             }
+        } finally {
+            zip.close();
+        }
+    }
+
+    private void warnSkipArchive(String sourceArchiveLabel, String displayName, IOException error) {
+        System.err.println("[warn] Skipping unreadable archive: " + sourceArchiveLabel
+                + " (" + displayName + "): " + error.getMessage());
+        if (options.debug) {
+            error.printStackTrace(System.err);
         }
     }
 

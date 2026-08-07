@@ -14,6 +14,7 @@
   - `BOOT-INF/classes`
   - `BOOT-INF/lib/*.jar`
 - 支持递归提取并处理嵌套 `.jar` 和 `.war`。
+- 无法用 JDK `ZipFile` 打开的归档（例如 ZIP64 CEN 异常的 jar）会输出 `[warn]` 并跳过，不中断整体扫描。
 - 每组 `128` 个 class 批量提交给 CFR，线程池大小可通过 `--threads` 配置。
 - 已存在且非空的 `.java` 文件会作为缓存命中跳过。
 - 未生成产物的 class 会进入下一轮重试；如果某一整轮没有新增产物，剩余 class 会被记录为失败。
@@ -30,12 +31,12 @@
 
 ### 性能优化（1.0.4+）
 
-- **ZipFile 连接池** — 通过引用计数在批处理任务间复用 `ZipFile` 句柄，避免重复读取 ZIP 中央目录。
-- **条目名索引** — 启动时预构建 `Map<String, ZipInputSource>` 索引，外部类查找从 O(N) 优化为 O(1)。
-- **单次目录遍历** — 将 `processDirectory()` 中的两次 `Files.walk()` 合并为单次遍历。
-- **32 KB IO 缓冲区** — 流拷贝缓冲区从 8 KB 提升至 32 KB。
-- **流式递归删除** — `Files.walkFileTree()` 替代全路径收集后删除。
-- **进度报告** — 每轮队列输出 `progress=已完成/总数 百分比%`。
+- **ZipFile 连接池** - 通过引用计数在批处理任务间复用 `ZipFile` 句柄，避免重复读取 ZIP 中央目录。
+- **条目名索引** - 启动时预构建 `Map<String, ZipInputSource>` 索引，外部类查找从 O(N) 优化为 O(1)。
+- **单次目录遍历** - 将 `processDirectory()` 中的两次 `Files.walk()` 合并为单次遍历。
+- **32 KB IO 缓冲区** - 流拷贝缓冲区从 8 KB 提升至 32 KB。
+- **流式递归删除** - `Files.walkFileTree()` 替代全路径收集后删除。
+- **进度报告** - 每轮队列输出 `progress=已完成/总数 百分比%`。
 
 ## 环境要求
 
@@ -51,29 +52,30 @@ mvn clean package
 构建产物：
 
 ```text
-target/cfr-selective-dec.jar
+target/cfr-selective-dec-1.0.6.jar
+target/cfr-selective-dec-1.0.6-with-dependencies.jar
 ```
 
-`cfr-selective-dec.jar` 是包含 CFR 的完整可运行 jar。
+`cfr-selective-dec-1.0.6.jar` 为不包含依赖的薄 jar；`cfr-selective-dec-1.0.6-with-dependencies.jar` 为包含 CFR 的完整可运行 jar。
 
 ## 快速开始
 
 反编译 WAR，并只保留 `com.example` 包下的 class：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --packages com.example
+java -jar target/cfr-selective-dec-1.0.6-with-dependencies.jar --input app.war --output out --packages com.example
 ```
 
 反编译目录树中的全部 class：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input ./build-output --output out
+java -jar target/cfr-selective-dec-1.0.6-with-dependencies.jar --input ./build-output --output out
 ```
 
 反编译多个包名前缀：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.jar --output out --packages com.foo,org.demo
+java -jar target/cfr-selective-dec-1.0.6-with-dependencies.jar --input app.jar --output out --packages com.foo,org.demo
 ```
 
 ## 使用方法
@@ -81,13 +83,13 @@ java -jar target/cfr-selective-dec.jar --input app.jar --output out --packages c
 命名参数：
 
 ```text
-java -jar cfr-selective-dec.jar --input <path> --output <dir> [--packages <prefixes>] [options]
+java -jar cfr-selective-dec-<version>-with-dependencies.jar --input <path> --output <dir> [--packages <prefixes>] [options]
 ```
 
 位置参数：
 
 ```text
-java -jar cfr-selective-dec.jar <input.jar|input.war|input-dir> <output-dir> [package-prefixes...] [options]
+java -jar cfr-selective-dec-<version>-with-dependencies.jar <input.jar|input.war|input-dir> <output-dir> [package-prefixes...] [options]
 ```
 
 ### 参数
@@ -117,7 +119,7 @@ com/foo
 使用位置参数时，也可以用空格分隔多个包名前缀：
 
 ```bash
-java -jar target/cfr-selective-dec.jar app.jar out com.foo org.bar
+java -jar target/cfr-selective-dec-1.0.6-with-dependencies.jar app.jar out com.foo org.bar
 ```
 
 如果没有提供 `--packages` 或位置参数包名前缀，则默认反编译所有匹配到的 `.class` 文件。
@@ -127,7 +129,7 @@ java -jar target/cfr-selective-dec.jar app.jar out com.foo org.bar
 如果审计项目需要非 UTF-8 源码编码，可以使用 `--output-encoding`：
 
 ```bash
-java -jar target/cfr-selective-dec.jar app.jar out com.example --output-encoding GB18030
+java -jar target/cfr-selective-dec-1.0.6-with-dependencies.jar app.jar out com.example --output-encoding GB18030
 ```
 
 ### 调试
@@ -135,13 +137,13 @@ java -jar target/cfr-selective-dec.jar app.jar out com.example --output-encoding
 使用 `--debug` 输出完整异常堆栈和内部调试信息：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --debug
+java -jar target/cfr-selective-dec-1.0.6-with-dependencies.jar --input app.war --output out --debug
 ```
 
 需要检查临时提取的嵌套归档时，可以使用 `--keep-temp`：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --keep-temp
+java -jar target/cfr-selective-dec-1.0.6-with-dependencies.jar --input app.war --output out --keep-temp
 ```
 
 ## 工作方式

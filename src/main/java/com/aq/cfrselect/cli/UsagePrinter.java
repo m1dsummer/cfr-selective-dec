@@ -6,10 +6,10 @@ public final class UsagePrinter {
 
     public static void print() {
         System.out.println("Usage / 用法:");
-        System.out.println("  java -jar cfr-selective-dec-standalone.jar <input.jar|input.war|input-dir> <output-dir> [<package1[,package2]> [packageN...]]");
-        System.out.println("  java -jar cfr-selective-dec-standalone.jar --input app.war --output out --packages com.demo,org.example");
-        System.out.println("  java -jar cfr-selective-dec-standalone.jar --input app.war --output out");
-        System.out.println("  java -jar cfr-selective-dec-standalone.jar --input app-dir --output out --packages com.demo");
+        System.out.println("  java -jar cfr-selective-dec-<version>-with-dependencies.jar <input.jar|input.war|input-dir> <output-dir> [<package1[,package2]> [packageN...]]");
+        System.out.println("  java -jar cfr-selective-dec-<version>-with-dependencies.jar --input app.war --output out --packages com.demo,org.example");
+        System.out.println("  java -jar cfr-selective-dec-<version>-with-dependencies.jar --input app.war --output out");
+        System.out.println("  java -jar cfr-selective-dec-<version>-with-dependencies.jar --input app-dir --output out --packages com.demo");
         System.out.println();
         System.out.println("Options / 参数:");
         System.out.println("  -i, --input       Input .jar, .war, classes directory, or directory to scan");
