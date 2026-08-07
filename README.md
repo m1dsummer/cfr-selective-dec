@@ -14,6 +14,7 @@
   - `BOOT-INF/classes`
   - `BOOT-INF/lib/*.jar`
 - 支持递归提取并处理嵌套 `.jar` 和 `.war`，也可通过 `--no-nested` 跳过。
+- 无法用 JDK `ZipFile` 打开的归档（例如 ZIP64 CEN 异常的 jar）会输出 `[warn]` 并跳过，不中断整体扫描。
 - 同一来源内按顶层 Java 源文件聚合 class，每组最多 `128` 个源码单元提交给 CFR；不同归档不会混入同一批次。
 - 只有来源 class、CFR 版本和输出参数指纹一致时，已有 `.java` 才会作为缓存命中。
 - 未生成产物的批次会直接拆成单个源码单元重试，仍无产物时记录为失败。
@@ -54,29 +55,30 @@ mvn clean package
 构建产物：
 
 ```text
-target/cfr-selective-dec.jar
+target/cfr-selective-dec-1.0.7.jar
+target/cfr-selective-dec-1.0.7-with-dependencies.jar
 ```
 
-`cfr-selective-dec.jar` 是包含 CFR 的完整可运行 jar。
+`cfr-selective-dec-1.0.7.jar` 为不包含依赖的薄 jar；`cfr-selective-dec-1.0.7-with-dependencies.jar` 为包含 CFR 的完整可运行 jar。
 
 ## 快速开始
 
 反编译 WAR，并只保留 `com.example` 包下的 class：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --packages com.example
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input app.war --output out --packages com.example
 ```
 
 反编译目录树中的全部 class：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input ./build-output --output out
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input ./build-output --output out
 ```
 
 反编译多个包名前缀：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.jar --output out --packages com.foo,org.demo
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input app.jar --output out --packages com.foo,org.demo
 ```
 
 ## 使用方法
@@ -84,13 +86,13 @@ java -jar target/cfr-selective-dec.jar --input app.jar --output out --packages c
 命名参数：
 
 ```text
-java -jar cfr-selective-dec.jar --input <path> --output <dir> [--packages <prefixes>] [options]
+java -jar cfr-selective-dec-<version>-with-dependencies.jar --input <path> --output <dir> [--packages <prefixes>] [options]
 ```
 
 位置参数：
 
 ```text
-java -jar cfr-selective-dec.jar <input.jar|input.war|input-dir> <output-dir> [package-prefixes...] [options]
+java -jar cfr-selective-dec-<version>-with-dependencies.jar <input.jar|input.war|input-dir> <output-dir> [package-prefixes...] [options]
 ```
 
 ### 参数
@@ -121,7 +123,7 @@ com/foo
 使用位置参数时，也可以用空格分隔多个包名前缀：
 
 ```bash
-java -jar target/cfr-selective-dec.jar app.jar out com.foo org.bar
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar app.jar out com.foo org.bar
 ```
 
 如果没有提供 `--packages` 或位置参数包名前缀，则默认反编译所有匹配到的 `.class` 文件。
@@ -131,7 +133,7 @@ java -jar target/cfr-selective-dec.jar app.jar out com.foo org.bar
 如果审计项目需要非 UTF-8 源码编码，可以使用 `--output-encoding`：
 
 ```bash
-java -jar target/cfr-selective-dec.jar app.jar out com.example --output-encoding GB18030
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar app.jar out com.example --output-encoding GB18030
 ```
 
 ### 调试
@@ -139,13 +141,13 @@ java -jar target/cfr-selective-dec.jar app.jar out com.example --output-encoding
 使用 `--debug` 输出完整异常堆栈和内部调试信息：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --debug
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input app.war --output out --debug
 ```
 
 需要检查临时提取的嵌套归档时，可以使用 `--keep-temp`：
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --keep-temp
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input app.war --output out --keep-temp
 ```
 
 ## 工作方式

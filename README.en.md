@@ -14,6 +14,7 @@ A CFR-based batch decompiler for local Java auditing. It scans `.jar`, `.war`, c
   - `BOOT-INF/classes`
   - `BOOT-INF/lib/*.jar`
 - Recursively extract and process nested `.jar` and `.war` files, or skip them with `--no-nested`.
+- Skip archives that JDK `ZipFile` cannot open (for example jars with malformed ZIP64 CEN metadata), emit a `[warn]`, and continue scanning.
 - Aggregate classes by top-level Java source within one input source, then process up to `128` source units per group without mixing archives.
 - Reuse an existing `.java` only when its source-class, CFR-version, and output-option fingerprint matches.
 - Split failed batches directly into single source units before permanent failure.
@@ -54,29 +55,31 @@ mvn clean package
 The build produces:
 
 ```text
-target/cfr-selective-dec.jar
+target/cfr-selective-dec-1.0.7.jar
+target/cfr-selective-dec-1.0.7-with-dependencies.jar
 ```
 
-The jar is a self-contained runnable artifact with CFR included.
+`cfr-selective-dec-1.0.7.jar` is the thin jar without bundled dependencies.
+`cfr-selective-dec-1.0.7-with-dependencies.jar` is the self-contained runnable artifact with CFR included.
 
 ## Quick Start
 
 Decompile a WAR and only keep classes under `com.example`:
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --packages com.example
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input app.war --output out --packages com.example
 ```
 
 Decompile a directory tree and include every class:
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input ./build-output --output out
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input ./build-output --output out
 ```
 
 Decompile multiple package prefixes:
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.jar --output out --packages com.foo,org.demo
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input app.jar --output out --packages com.foo,org.demo
 ```
 
 ## Usage
@@ -84,13 +87,13 @@ java -jar target/cfr-selective-dec.jar --input app.jar --output out --packages c
 Named arguments:
 
 ```text
-java -jar cfr-selective-dec.jar --input <path> --output <dir> [--packages <prefixes>] [options]
+java -jar cfr-selective-dec-<version>-with-dependencies.jar --input <path> --output <dir> [--packages <prefixes>] [options]
 ```
 
 Positional arguments:
 
 ```text
-java -jar cfr-selective-dec.jar <input.jar|input.war|input-dir> <output-dir> [package-prefixes...] [options]
+java -jar cfr-selective-dec-<version>-with-dependencies.jar <input.jar|input.war|input-dir> <output-dir> [package-prefixes...] [options]
 ```
 
 ### Options
@@ -121,7 +124,7 @@ com/foo
 When using positional arguments, package prefixes can also be separated by spaces:
 
 ```bash
-java -jar target/cfr-selective-dec.jar app.jar out com.foo org.bar
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar app.jar out com.foo org.bar
 ```
 
 If `--packages` and positional package prefixes are omitted, all matching `.class` files are decompiled.
@@ -131,7 +134,7 @@ If `--packages` and positional package prefixes are omitted, all matching `.clas
 Use `--output-encoding` when auditing projects that need a non-UTF-8 source encoding:
 
 ```bash
-java -jar target/cfr-selective-dec.jar app.jar out com.example --output-encoding GB18030
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar app.jar out com.example --output-encoding GB18030
 ```
 
 ### Debugging
@@ -139,13 +142,13 @@ java -jar target/cfr-selective-dec.jar app.jar out com.example --output-encoding
 Use `--debug` to print full stack traces and internal debug messages:
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --debug
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input app.war --output out --debug
 ```
 
 Use `--keep-temp` when you need to inspect extracted nested archives:
 
 ```bash
-java -jar target/cfr-selective-dec.jar --input app.war --output out --keep-temp
+java -jar target/cfr-selective-dec-1.0.7-with-dependencies.jar --input app.war --output out --keep-temp
 ```
 
 ## How It Works
