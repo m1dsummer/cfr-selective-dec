@@ -21,12 +21,12 @@ public final class UsagePrinter {
         System.out.println("      --output-encoding <charset>");
         System.out.println("                    Charset used to save .java files, default UTF-8");
         System.out.println("                    .java 文件保存编码，默认 UTF-8");
-        System.out.println("      --threads <n> Worker threads, default min(4, CPUs)");
-        System.out.println("                    工作线程数，默认不超过 4，避免吃满 CPU");
+        System.out.println("      --threads <n> Scan and decompile worker threads, default min(4, CPUs)");
+        System.out.println("                    扫描与反编译工作线程数，默认不超过 4，避免吃满 CPU");
         System.out.println("      --no-nested  Skip nested JAR/WAR archives");
         System.out.println("                    跳过嵌套 JAR/WAR，只处理当前归档中的 class");
-        System.out.println("      --keep-temp   Keep temporary filtered jars for inspection");
-        System.out.println("                    保留临时过滤 jar，便于排查");
+        System.out.println("      --keep-temp   Keep extracted nested archives for inspection");
+        System.out.println("                    保留实际提取的嵌套归档，便于排查");
         System.out.println("      --debug       Print full exception stack traces / 打印完整异常堆栈");
         System.out.println("  -h, --help        Show this help / 显示帮助");
     }
